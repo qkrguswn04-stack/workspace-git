@@ -1,0 +1,6 @@
+.git
+.env
+pycache
+*.pyc
+
+#이게뭔데?

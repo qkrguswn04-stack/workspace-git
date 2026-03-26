@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Love Letter 💌{% endblock %}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://code.jquery.com/jquery-3.7.1.js"></script>
+    <!-- 타이핑 플러그인 -->
+    <script src="https://unpkg.com/typed.js@2.0.16/dist/typed.umd.js"></script>
+    {% block head %}{% endblock %}
+</head>
+
+<body class="bg-pink-50 min-h-screen relative overflow-x-hidden font-sans text-gray-800">
+
+    <!-- ✅ 각 페이지의 주력 화면이 꽂히는 구역 -->
+    {% block content %}
+    {% endblock %}
+
+    <!-- 🌸 벚꽃 흩날리는 공통 배경 (Tailwind로 absolute 제어) -->
+    <div id="sakura" class="pointer-events-none fixed inset-0 z-0 overflow-hidden">
+        <div class="petal absolute top-[-10%] text-pink-300 drop-shadow-sm">🌸</div>
+        <div class="petal absolute top-[-10%] text-pink-300 drop-shadow-sm">🌸</div>
+        <div class="petal absolute top-[-10%] text-pink-300 drop-shadow-sm">🌸</div>
+        <div class="petal absolute top-[-10%] text-pink-300 drop-shadow-sm">🌸</div>
+        <div class="petal absolute top-[-10%] text-pink-300 drop-shadow-sm">🌸</div>
+        <div class="petal absolute top-[-10%] text-pink-300 drop-shadow-sm">🌸</div>
+        <div class="petal absolute top-[-10%] text-pink-300 drop-shadow-sm">🌸</div>
+        <div class="petal absolute top-[-10%] text-pink-300 drop-shadow-sm">🌸</div>
+        <div class="petal absolute top-[-10%] text-pink-300 drop-shadow-sm">🌸</div>
+        <div class="petal absolute top-[-10%] text-pink-300 drop-shadow-sm">🌸</div>
+        <div class="petal absolute top-[-10%] text-pink-300 drop-shadow-sm">🌸</div>
+        <div class="petal absolute top-[-10%] text-pink-300 drop-shadow-sm">🌸</div>
+        <div class="petal absolute top-[-10%] text-pink-300 drop-shadow-sm">🌸</div>
+        <div class="petal absolute top-[-10%] text-pink-300 drop-shadow-sm">🌸</div>
+        <div class="petal absolute top-[-10%] text-pink-300 drop-shadow-sm">🌸</div>
+        <div class="petal absolute top-[-10%] text-pink-300 drop-shadow-sm">🌸</div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const petals = document.querySelectorAll('.petal');
+            petals.forEach(petal => {
+                const left = Math.random() * 100;
+                const duration = Math.random() * 5 + 5;
+                const delay = Math.random() * 5;
+                const size = Math.random() * 20 + 10;
+                petal.style.left = left + '%';
+                petal.style.fontSize = size + 'px';
+                petal.style.animationDuration = duration + 's';
+                petal.style.animationDelay = delay + 's';
+            });
+        });
+    </script>
+</body>
+
+</html>

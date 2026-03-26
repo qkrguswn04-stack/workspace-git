@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+
+{% block title %}Write a Love Letter 🖋️{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="../static/css/style.css">
+{% endblock %}
+
+{% block content %}
+<div class="relative z-10 flex items-center justify-center min-h-screen py-10 px-4">
+	<!-- 커스텀 CSS를 걷어내고 Tailwind bg-[url]과 bg-cover 유틸리티로 완벽 통제 -->
+	<div id="card"
+		class="relative bg-cover bg-center rounded-3xl shadow-[0_20px_40px_rgba(255,107,129,0.25)] w-full max-w-[500px] overflow-hidden"
+		style="background-image: url('../static/img/2.webp');">
+		<!-- 배경 이미지가 너무 진해서 안보일 경우를 대비한 반투명 오버레이 -->
+		<div class="absolute inset-0 bg-white/40"></div>
+
+		<div class="relative z-10 bg-white/80 backdrop-blur-md p-8 sm:p-10 text-gray-800 h-full w-full">
+			<h1 class="text-3xl text-pink-500 font-extrabold text-center mb-6 tracking-tight drop-shadow-sm">Love Letter
+				💌</h1>
+
+			<form id="sendForm" method="post" action="/sendLetter" class="space-y-4">
+				<div>
+					<label for="email" class="block font-bold mb-1.5 text-pink-700/80 text-sm">보내는 분 연락처 (식별용
+						이메일):</label>
+					<input type="email"
+						class="w-full px-4 py-2.5 bg-white/80 rounded-xl border border-pink-200 focus:outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent transition-all"
+						name="email" placeholder="example@email.com" required>
+				</div>
+
+				<hr class="border-pink-200/60 my-5">
+
+				<div>
+					<label for="toNm" class="block font-bold mb-1.5 text-pink-700/80 text-sm">To (받는 분 이름):</label>
+					<input type="text"
+						class="w-full px-4 py-2.5 bg-white/80 rounded-xl border border-pink-200 focus:outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent transition-all"
+						name="toNm" placeholder="ex) 주디" required>
+				</div>
+
+				<div>
+					<label for="message" class="block font-bold mb-1.5 text-pink-700/80 text-sm">마음을 적어주세요 (엔터 기준
+						3줄):</label>
+					<textarea
+						class="w-full px-4 py-2.5 bg-white/80 rounded-xl border border-pink-200 focus:outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent transition-all resize-none leading-relaxed"
+						id="message" rows="3" placeholder="안녕 봄이다...
+from. 닉"></textarea>
+				</div>
+
+				<input type="hidden" name="messageOne" id="messageOne">
+				<input type="hidden" name="messageTwo" id="messageTwo">
+				<input type="hidden" name="messageThree" id="messageThree">
+
+				<button type="submit"
+					class="w-full bg-pink-500 hover:bg-pink-600 text-white font-bold py-3.5 mt-6 rounded-xl shadow-lg hover:shadow-pink-500/40 transition-all transform hover:-translate-y-0.5"
+					id="openletter">💌 마음 전달하기 (DB 저장)</button>
+			</form>
+
+			{% if error %}
+			<div class="mt-4 bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-xl shadow-sm flex items-center gap-2"
+				role="alert">
+				<span class="text-sm font-medium">{{ error }}</span>
+			</div>
+			{% endif %}
+		</div>
+	</div>
+</div>
+<!-- 폼 쪼개기 전용 JS (제이쿼리 완전 제거 후 순수 바닐라JS로 작성) -->
+<script>
+	document.addEventListener("DOMContentLoaded", function () {
+		document.getElementById("sendForm").addEventListener("submit", function (e) {
+			e.preventDefault();
+			let messageArr = document.getElementById("message").value.split("\n");
+			// 3줄 미만일 경우 빈칸 채우기
+			while (messageArr.length < 3) {
+				messageArr.push(' ');
+			}
+			document.getElementById("messageOne").value = messageArr[0];
+			document.getElementById("messageTwo").value = messageArr[1];
+			document.getElementById("messageThree").value = messageArr[2];
+			this.submit();
+		});
+	});
+</script>
+{% endblock %}
