@@ -3,11 +3,11 @@ FROM python:3.10
 # 2. 작업 디렉토리
 WORKDIR /letter
 # 3. 의존성 먼저 복사
-COPY letter/requirements.txt .
+COPY requirements.txt .
 # 4. 설치
 RUN pip install --no-cache-dir -r requirements.txt
 # 5. 전체 코드 복사
-COPY letter/ .
+COPY . .
 # 6. 포트
 EXPOSE 8000
 # 7. 실행
