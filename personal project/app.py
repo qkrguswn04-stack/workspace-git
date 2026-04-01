@@ -6,6 +6,8 @@ import matplotlib.pyplot as plt
 import io
 import base64
 from sklearn.linear_model import RANSACRegressor
+from scipy.signal import find_peaks
+from scipy.ndimage import gaussian_filter1d
 
 # GUI 없는 환경을 위한 설정
 matplotlib.use('Agg')
@@ -15,18 +17,26 @@ app = Flask(__name__)
 
 # --- [Helper Functions for Logic] ---
 
-def safe_zone_auto_gates(fsc_data, ssc_data):
-    """FSC/SSC 데이터를 기반으로 Debris 제거를 위한 게이트 좌표 계산"""
-    safe_mask = (fsc_data > 50000) & (fsc_data < 200000)
+def safe_zone_auto_gates(fsc_data, ssc_data, fsc_limit):
+    """FSC/SSC 데이터를 기반으로 Debris 제거를 위한 게이트 좌표 동적 계산 (하이브리드 피크 탐색)"""
 
+    data_max = min(np.max(fsc_data), fsc_limit)
+    lower_bound = data_max * 0.02  # 0 근처의 극단적 노이즈 제외
+    upper_bound = data_max * 0.90
+
+    # ---------------------------------------------------------
+    # 1. 상하단 대각선 게이트 (기존 유지)
+    # ---------------------------------------------------------
+    safe_mask = (fsc_data > lower_bound) & (fsc_data < upper_bound)
     if np.sum(safe_mask) < 100:
-        return 0, 0, 0, 0, 50000
+        return 0, 0, 0, 0, lower_bound
 
     safe_fsc, safe_ssc = fsc_data[safe_mask], ssc_data[safe_mask]
-    bins = np.linspace(50000, 200000, 15)
+    bins = np.linspace(lower_bound, upper_bound, 15)
     bin_idx = np.digitize(safe_fsc, bins)
 
     ux, uy, lx, ly = [], [], [], []
+    ssc_noise_level = np.percentile(ssc_data, 10)
 
     for i in range(1, len(bins)):
         m = (bin_idx == i)
@@ -35,22 +45,60 @@ def safe_zone_auto_gates(fsc_data, ssc_data):
             lx.append(x_m)
             ly.append(np.percentile(safe_ssc[m], 1))
 
-            uc = safe_ssc[m & (safe_ssc > 30000)]
+            uc = safe_ssc[m & (safe_ssc > ssc_noise_level)]
             ux.append(x_m)
             uy.append(
                 np.percentile(uc, 95) if len(uc) > 10
                 else np.percentile(safe_ssc[m], 99)
             )
 
-    up_c = np.polyfit(ux, uy, 1)
-    low_c = np.polyfit(lx, ly, 1)
+    up_c = np.polyfit(ux, uy, 1) if len(ux) > 1 else [0, np.max(safe_ssc)]
+    low_c = np.polyfit(lx, ly, 1) if len(lx) > 1 else [0, 0]
 
-    hist, edges = np.histogram(fsc_data, bins=100, range=(0, 200000))
-    d_peak = np.argmax(hist[:20])
-    c_peak = d_peak + 5 + np.argmax(hist[d_peak + 5:80])
-    v_idx = d_peak + np.argmin(hist[d_peak:c_peak])
+    # ---------------------------------------------------------
+    # 🤖 2. [만능 하이브리드] 수직 Cutoff (연두색 점선) 동적 계산
+    # ---------------------------------------------------------
+    # 200개의 구간으로 아주 세밀하게 히스토그램을 그림
+    hist, edges = np.histogram(fsc_data, bins=200, range=(0, data_max))
 
-    return up_c[0], up_c[1], low_c[0], low_c[1], edges[v_idx]
+    # 자잘한 노이즈로 인한 가짜 산(Peak)을 막기 위해 데이터를 부드럽게 스무딩 처리
+    smooth_hist = gaussian_filter1d(hist, sigma=3)
+
+    # 의미 있는 진짜 산(Peak)들만 찾아내기 (가장 높은 산 높이의 5% 이상, 서로 어느정도 떨어져 있어야 함)
+    peaks, _ = find_peaks(smooth_hist, height=np.max(smooth_hist) * 0.05, distance=10)
+
+    # 맨 앞쪽(0~2%)에 있는 피크는 기계적 노이즈일 확률이 높으므로 무시
+    valid_peaks = [p for p in peaks if p > 4]
+
+    if len(valid_peaks) >= 2:
+        # [PBMC 스타일] 찌꺼기 산과 세포 산이 명확히 분리된 경우
+        p1 = valid_peaks[0]  # 첫 번째 산 (보통 Debris)
+        p2 = valid_peaks[1]  # 두 번째 산 (보통 Cell)
+
+        # 두 산 사이에서 가장 푹 파인 깊은 골짜기(Valley) 찾기
+        valley_idx = p1 + np.argmin(smooth_hist[p1:p2])
+        cut_val = edges[valley_idx]
+
+    elif len(valid_peaks) == 1:
+        # [WT_FL 스타일] 찌꺼기와 세포가 뭉쳐서 하나의 산처럼 보이는 경우
+        main_peak = valid_peaks[0]
+        peak_height = smooth_hist[main_peak]
+
+        # 산 정상에서 왼쪽 비탈길로 걸어 내려오기
+        drop_idx = main_peak
+        # 산 높이의 15% 이하로 낮아지는 '왼쪽 기슭'을 찾으면 거기서 컷오프!
+        while drop_idx > 2 and smooth_hist[drop_idx] > peak_height * 0.15:
+            drop_idx -= 1
+        cut_val = edges[drop_idx]
+
+    else:
+        # 산을 아예 못 찾았을 때를 대비한 안전 장치 (하위 5% 지점)
+        cut_val = data_max * 0.05
+
+    # 연두색 선이 너무 극단적으로 왼쪽이나 오른쪽으로 가지 않도록 족쇄 채우기 (데이터의 2% ~ 40% 사이)
+    cut_val = np.clip(cut_val, data_max * 0.02, data_max * 0.4)
+
+    return up_c[0], up_c[1], low_c[0], low_c[1], cut_val
 
 
 def generate_plot_base64(fig):
@@ -120,7 +168,8 @@ def analyze():
         return jsonify({'plots': [], 'total_sum': "0"})
 
     total_d = np.vstack(sampling_debris)
-    us, ui, ls, li, cut = safe_zone_auto_gates(total_d[:, 0], total_d[:, 1])
+    # ✅ 맨 끝에 fsc_limit를 꼭 추가해 주세요!
+    us, ui, ls, li, cut = safe_zone_auto_gates(total_d[:, 0], total_d[:, 1], fsc_limit)
 
     plots = []
     total_cleaned_count = 0
