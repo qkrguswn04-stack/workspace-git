@@ -18,7 +18,6 @@ app = Flask(__name__)
 # --- [Helper Functions for Logic] ---
 
 def safe_zone_auto_gates(fsc_data, ssc_data, fsc_limit):
-    """FSC/SSC 데이터를 기반으로 Debris 제거를 위한 게이트 좌표 동적 계산 (하이브리드 피크 탐색)"""
 
     data_max = min(np.max(fsc_data), fsc_limit)
     lower_bound = data_max * 0.02  # 0 근처의 극단적 노이즈 제외
@@ -43,14 +42,19 @@ def safe_zone_auto_gates(fsc_data, ssc_data, fsc_limit):
         if np.sum(m) > 100:
             x_m = safe_fsc[m].mean()
             lx.append(x_m)
-            ly.append(np.percentile(safe_ssc[m], 1))
+            ly.append(np.percentile(safe_ssc[m], 1))  # 하단은 그대로 유지 (또는 0.5로 낮춤)
 
             uc = safe_ssc[m & (safe_ssc > ssc_noise_level)]
             ux.append(x_m)
-            uy.append(
-                np.percentile(uc, 95) if len(uc) > 10
-                else np.percentile(safe_ssc[m], 99)
-            )
+
+            # -------------------------------------------------------
+            # 🚀 수정 포인트: 기존 95% -> 99.5% 혹은 99.9%로 상향
+            # 95%로 잡으면 상위 5%의 세포가 잘려나가게 됩니다.
+            # -------------------------------------------------------
+            if len(uc) > 10:
+                uy.append(np.percentile(uc, 99.5))  # <- 더 높은 백분위수로 수정
+            else:
+                uy.append(np.percentile(safe_ssc[m], 99.9))
 
     up_c = np.polyfit(ux, uy, 1) if len(ux) > 1 else [0, np.max(safe_ssc)]
     low_c = np.polyfit(lx, ly, 1) if len(lx) > 1 else [0, 0]
@@ -63,8 +67,6 @@ def safe_zone_auto_gates(fsc_data, ssc_data, fsc_limit):
 
     # 자잘한 노이즈로 인한 가짜 산(Peak)을 막기 위해 데이터를 부드럽게 스무딩 처리
     smooth_hist = gaussian_filter1d(hist, sigma=3)
-
-    # 의미 있는 진짜 산(Peak)들만 찾아내기 (가장 높은 산 높이의 5% 이상, 서로 어느정도 떨어져 있어야 함)
     peaks, _ = find_peaks(smooth_hist, height=np.max(smooth_hist) * 0.05, distance=10)
 
     # 맨 앞쪽(0~2%)에 있는 피크는 기계적 노이즈일 확률이 높으므로 무시
@@ -150,6 +152,9 @@ def analyze():
     all_samples = []
     sampling_debris = []
 
+    all_true = []
+    all_pred = []
+
     # 1. 데이터 로딩 및 샘플링
     for f in files:
         try:
@@ -185,10 +190,52 @@ def analyze():
             clean_count = np.sum(m_full)
             total_cleaned_count += clean_count
 
+            try:
+                label_idx = s.pnn_labels.index('Label')
+                y_true = (ev[:, label_idx] > 0.5).astype(int)
+                y_pred = m_full.astype(int)
+
+                # 전체 리스트에 누적
+                all_true.extend(y_true)
+                all_pred.extend(y_pred)
+
+                from sklearn.metrics import recall_score, accuracy_score
+                print(f"[{s.id}] 개별 Acc: {accuracy_score(y_true, y_pred):.2%}")
+            except:
+                pass
+
             # 시각화용 샘플링
             v_idx = np.random.choice(len(ev), min(len(ev), 8000), replace=False)
             fv, sv = ev[v_idx, fi], ev[v_idx, si]
             m_v = m_full[v_idx]
+
+            # analyze 함수 내부, m_full(마스크) 계산 직후에 삽입
+            try:
+                # 1. FCS 파일에서 'Label' 채널 인덱스 찾기
+                label_idx = s.pnn_labels.index('Label')
+                y_true_raw = ev[:, label_idx]
+
+                # 2. 정답 라벨 생성 (0: Debris, 1 이상: Cell)
+                y_true = (y_true_raw > 0.5).astype(int)
+                # 알고리즘이 만든 마스크를 0과 1로 변환
+                y_pred = m_full.astype(int)
+
+                # 3. 수치 계산
+                from sklearn.metrics import recall_score, accuracy_score
+
+                overall_acc = accuracy_score(y_true, y_pred)
+                # pos_label=1 은 Cell Population의 정확도 (Recall)
+                cell_acc = recall_score(y_true, y_pred, pos_label=1)
+                # pos_label=0 은 Debris의 정확도 (Recall)
+                debris_acc = recall_score(y_true, y_pred, pos_label=0)
+
+                print(f"[{f.filename}] 분석 결과")
+                print(f"- 전체 일치율: {overall_acc:.2%}")
+                print(f"- Cell Population 포획률: {cell_acc:.2%}")
+                print(f"- Debris 제거율: {debris_acc:.2%}")
+
+            except ValueError:
+                print(f"[{f.filename}] 이 파일에는 'Label' 채널이 없어 검증이 불가능합니다.")
 
             # --- [시각화: 눈금 및 스케일 적용] ---
             fig, ax = plt.subplots(figsize=(4.5, 4.5), facecolor='#1a202c')
@@ -288,8 +335,15 @@ def analyze():
                 'cleaned': f"{singlet_count:,}"
             })
 
-    return jsonify({'plots': plots, 'total_sum': f"{total_cleaned_count:,}"})
+    if all_true:
+        from sklearn.metrics import accuracy_score, recall_score
+        print("\n" + "=" * 40)
+        print(f"📊 [TOTAL RESULT] 분석 파일: {len(all_samples)}개")
+        print(f"- Total Accuracy: {accuracy_score(all_true, all_pred):.2%}")
+        print(f"- Total Cell Recall: {recall_score(all_true, all_pred, pos_label=1):.2%}")
+        print("=" * 40 + "\n")
 
+    return jsonify({'plots': plots, 'total_sum': f"{total_cleaned_count:,}"})
 
 if __name__ == '__main__':
     app.run(port=5000, debug=True)
